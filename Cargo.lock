@@ -3,13 +3,6 @@
 version = 3
 
 [[package]]
-name = "ConwayBevy"
-version = "0.1.0"
-dependencies = [
- "bevy",
-]
-
-[[package]]
 name = "ab_glyph"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,6 +358,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "bevy_ecs_tilemap"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ce7f9fa49f364602ac0901d5f181445529b23fb0623e39e791548f8a6e8c2b5"
+dependencies = [
+ "bevy",
+ "log",
+ "regex",
 ]
 
 [[package]]
@@ -1065,6 +1069,14 @@ name = "const_panic"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed2b28323eee4fb66bb824401daa3e46bd445b9a9298a3d382b320710ba69dd"
+
+[[package]]
+name = "conway_bevy"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "bevy_ecs_tilemap",
+]
 
 [[package]]
 name = "core-foundation"
