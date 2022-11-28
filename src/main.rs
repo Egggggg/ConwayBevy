@@ -4,13 +4,13 @@ use bevy::time::Stopwatch;
 use bevy_ecs_tilemap::helpers::square_grid::neighbors::Neighbors;
 use bevy_ecs_tilemap::prelude::*;
 
-const MAP_SIZE: (u32, u32) = (32, 32);
-const CELL_SIZE: f32 = 16.0;
+const MAP_SIZE: (u32, u32) = (64, 64);
+const CELL_SIZE: f32 = 8.0;
 const TEAM_COLORS: [Color; 4] = [
-    Color::WHITE,        // empty, shouldn't be visible
-    Color::YELLOW_GREEN, // neither
-    Color::BLUE,         // team 1
-    Color::ORANGE,       // team 2
+    Color::WHITE,         // empty, shouldn't be visible
+    Color::YELLOW_GREEN,  // neither
+    Color::MIDNIGHT_BLUE, // team 1
+    Color::PINK,          // team 2
 ];
 
 #[derive(Component, Clone, Copy, Debug)]
@@ -39,7 +39,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugin(TilemapPlugin)
-            .insert_resource(TickDuration(Stopwatch::default(), 0.1))
+            .insert_resource(TickDuration(Stopwatch::default(), 0.05))
             .add_startup_system(startup)
             .add_system(update_map)
             .add_system(mouse_input)
@@ -50,7 +50,7 @@ impl Plugin for GamePlugin {
 fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
     commands.spawn(Camera2dBundle::default());
 
-    let texture_handle: Handle<Image> = asset_server.load("tiles.png");
+    let texture_handle: Handle<Image> = asset_server.load("tile.png");
 
     let map_size = TilemapSize {
         x: MAP_SIZE.0,
@@ -69,7 +69,7 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
                 .spawn(TileBundle {
                     position: tile_pos,
                     tilemap_id: TilemapId(tilemap_entity),
-                    color: TileColor(Color::BLACK),
+                    color: TileColor(TEAM_COLORS[0]),
                     visible: TileVisible(false),
                     ..Default::default()
                 })
@@ -101,9 +101,8 @@ fn startup(mut commands: Commands, asset_server: Res<AssetServer>) {
 fn update_map(
     time: Res<Time>,
     mut ticker: ResMut<TickDuration>,
-    tilemap_query: Query<(&TileStorage, &TilemapSize)>,
+    mut tilemap_query: Query<(&TileStorage, &TilemapSize)>,
     mut tile_query: Query<(&mut TileVisible, &mut TileColor, &mut Cell)>,
-    changed_query: Query<&TilePos, &Changed<Cell>>,
 ) {
     if ticker.0.tick(time.delta()).elapsed_secs_f64() < ticker.1 {
         return;
@@ -111,73 +110,85 @@ fn update_map(
 
     ticker.0.reset();
 
-    let (tile_storage, map_size) = tilemap_query.single();
+    for (tile_storage, map_size) in tilemap_query.iter_mut() {
+        // first loop to move cell.1 to cell.0, to actually update them
+        for x in 0..map_size.x {
+            for y in 0..map_size.y {
+                let cell = tile_storage.get(&TilePos { x, y }).unwrap();
+                let (mut visible, mut color, mut cell) = tile_query
+                    .get_mut(cell)
+                    .expect(&format!("Tile ({x},{y}) was not a Cell component"));
 
-    // first loop to move cell.1 to cell.0, to actually update them
-    for cell in changed_query.iter() {
-        let (mut visible, mut color, mut cell) = tile_query
-            .get_mut(cell)
-            .expect(&format!("Tile ({x},{y}) is not a Cell component"));
+                *visible = TileVisible(cell.1 != 0);
+                *color = TileColor(TEAM_COLORS[cell.1]);
 
-        *visible = TileVisible(cell.1 != 0);
-        *color = TileColor(TEAM_COLORS[cell.1]);
+                cell.0 = cell.1;
+                cell.1 = 0;
+            }
+        }
 
-        cell.0 = cell.1;
-        cell.1 = 0;
-    }
+        // second loop to update for next time
+        for x in 0..map_size.x {
+            for y in 0..map_size.y {
+                let tile_pos = &TilePos { x, y };
+                let neighbors =
+                    Neighbors::get_square_neighboring_positions(tile_pos, map_size, true)
+                        .entities(tile_storage);
 
-    // second loop to update for next time
-    for cell in changed_query.iter() {
-        let tile_pos = &TilePos { x, y };
-        let neighbors = Neighbors::get_square_neighboring_positions(tile_pos, map_size, true)
-            .entities(tile_storage);
+                let (team, neighbors) = {
+                    let neighbors = neighbors
+                        .iter()
+                        .filter(|&c| {
+                            if let Ok((_, _, cell)) = tile_query.get(*c) {
+                                cell.0 != 0
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|n| {
+                            let (_, _, cell) = tile_query
+                                .get(*n)
+                                .expect(&format!("Tile ({x},{y}) is not a Cell component"));
 
-        let (team, neighbors) = {
-            let neighbors = neighbors
-                .iter()
-                .filter(|&c| {
-                    if let Ok((_, _, cell)) = tile_query.get(*c) {
-                        cell.0 != 0
-                    } else {
-                        false
+                            cell
+                        });
+
+                    let mut team = 0;
+                    let mut count = 0;
+
+                    for neighbor in neighbors {
+                        count += 1;
+
+                        if neighbor.0 == 1 {
+                            continue;
+                        } else if team == 0 {
+                            // set team to the first team of any found neighbor
+                            team = neighbor.0;
+                        } else if team != neighbor.0 {
+                            // if a neighbor is found with a different team than the first one, change team to neither and leave the loop
+                            // keep going to get the full count
+                            team = 1;
+                        }
                     }
-                })
-                .map(|n| {
-                    let (_, _, cell) = tile_query
-                        .get(*n)
-                        .expect(&format!("Tile ({x},{y}) is not a Cell component"));
 
-                    cell
-                });
+                    if team == 0 {
+                        team = 1;
+                    }
 
-            let mut team = 0;
-            let mut count = 0;
+                    (team, count)
+                };
 
-            for neighbor in neighbors {
-                count += 1;
+                let cell = tile_storage.get(tile_pos).unwrap();
+                let (_, _, mut cell) = tile_query
+                    .get_mut(cell)
+                    .expect(&format!("Tile ({x},{y}) is not a Cell component"));
 
-                if team == 0 {
-                    // set team to the first team of any found neighbor
-                    team = neighbor.0;
-                } else if team != neighbor.0 {
-                    // if a neighbor is found with a different team than the first one, change team to neither and leave the loop
-                    // keep going to get the full count
-                    team = 1;
+                if cell.0 != 0 && neighbors == 2 || neighbors == 3 {
+                    cell.1 = team;
+                } else {
+                    cell.1 = 0;
                 }
             }
-
-            (team, count)
-        };
-
-        let cell = tile_storage.get(tile_pos).unwrap();
-        let (_, _, mut cell) = tile_query
-            .get_mut(cell)
-            .expect(&format!("Tile ({x},{y}) is not a Cell component"));
-
-        if cell.0 != 0 && neighbors == 2 || neighbors == 3 {
-            cell.1 = team;
-        } else {
-            cell.1 = 0;
         }
     }
 }
@@ -204,30 +215,29 @@ fn mouse_input(
             return;
         }
 
+        // can unwrap because we check bounds in the previous statement
         let cell = tile_storage.get(&TilePos { x, y }).unwrap();
         let (mut visible, mut color, mut cell) = tile_query
             .get_mut(cell)
             .expect(&format!("Tile ({x},{y}) is not a Cell component"));
 
         let team = if keys.pressed(KeyCode::LControl) {
-            if cell.0 == 2 {
-                0
-            } else {
-                2
-            }
-        } else {
             if cell.0 == 3 {
                 0
             } else {
                 3
             }
+        } else {
+            if cell.0 == 2 {
+                0
+            } else {
+                2
+            }
         };
-
-        dbg!(team);
 
         cell.0 = team;
         cell.1 = team;
-        *color = TileColor(TEAM_COLORS[cell.1]);
+        *color = TileColor(TEAM_COLORS[team]);
         *visible = TileVisible(team != 0);
     }
 }
