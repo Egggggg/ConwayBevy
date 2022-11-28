@@ -209,7 +209,7 @@ fn mouse_input(
             .get_mut(cell)
             .expect(&format!("Tile ({x},{y}) is not a Cell component"));
 
-        let new_val = if keys.pressed(KeyCode::LControl) {
+        let team = if keys.pressed(KeyCode::LControl) {
             if cell.0 == 2 {
                 0
             } else {
@@ -223,10 +223,12 @@ fn mouse_input(
             }
         };
 
-        cell.0 = new_val;
-        cell.1 = new_val;
+        dbg!(team);
+
+        cell.0 = team;
+        cell.1 = team;
         *color = TileColor(TEAM_COLORS[cell.1]);
-        *visible = TileVisible(new_val != 0);
+        *visible = TileVisible(team != 0);
     }
 }
 
